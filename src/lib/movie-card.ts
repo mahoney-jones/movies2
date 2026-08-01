@@ -29,8 +29,16 @@ function buildPlaceholder(): HTMLElement {
  * Builds a card with DOM APIs rather than an HTML string. Titles come from a
  * third-party API, so keeping them in `textContent` means they can never be
  * parsed as markup.
+ *
+ * `onPosterUnavailable` fires once a poster URL is confirmed dead — OMDB
+ * advertised artwork that no longer resolves. Callers that filter such titles
+ * out pass a handler to drop the card; without one the card falls back to the
+ * same placeholder used for titles OMDB reports as "N/A".
  */
-export function createMovieCard(movie: OmdbMovie): HTMLElement {
+export function createMovieCard(
+  movie: OmdbMovie,
+  onPosterUnavailable?: (card: HTMLElement) => void,
+): HTMLElement {
   const card = document.createElement("article");
   card.className =
     "group overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-slate-800 dark:bg-slate-900";
@@ -57,7 +65,8 @@ export function createMovieCard(movie: OmdbMovie): HTMLElement {
         img.src = movie.Poster;
         return;
       }
-      frame.replaceChildren(buildPlaceholder());
+      if (onPosterUnavailable) onPosterUnavailable(card);
+      else frame.replaceChildren(buildPlaceholder());
     });
 
     img.src = src;
