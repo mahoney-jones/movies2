@@ -6,6 +6,15 @@ Built with [Astro](https://astro.build) and Tailwind CSS. The site is fully
 static — every page is prerendered and the search runs in the browser — so it
 can be hosted anywhere, including GitHub Pages.
 
+Results are filtered to titles that have artwork. OMDB reports `"N/A"` for
+titles it knows have none, and also returns plenty of poster URLs that no
+longer resolve; both are hidden, the latter once the image fails to load. A
+page can therefore show fewer than the ten results OMDB returns, which is why
+the count reads "Showing 3 of 10 on this page" rather than a range. To show
+every title instead, drop the `hasArtwork` filter in `src/pages/results.astro`
+and omit the `onPosterUnavailable` callback — cards then fall back to a
+"No poster available" placeholder.
+
 ## Prerequisites
 - Node.js 22.12 or newer (required by Astro 7)
 - npm

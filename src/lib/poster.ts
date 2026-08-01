@@ -10,8 +10,12 @@ const SIZE_TOKEN = /_SX\d+/;
 export const POSTER_WIDTH = 200;
 export const POSTER_HEIGHT = 300;
 
-/** OMDB uses this literal string when it has no artwork for a title. */
-function hasArtwork(poster: string | undefined): poster is string {
+/**
+ * Whether OMDB claims to have artwork. OMDB uses the literal string "N/A"
+ * when it has none — but a URL being present is no guarantee it still
+ * resolves, so this is a claim, not a fact.
+ */
+export function hasArtwork(poster: string | undefined): poster is string {
   return typeof poster === "string" && poster !== "" && poster !== "N/A";
 }
 
