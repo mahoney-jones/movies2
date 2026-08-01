@@ -3,18 +3,21 @@ import {
   searchMovies,
   type OmdbConfig,
   type OmdbMovie,
+  type SearchResult,
 } from "./omdb";
 import { hasArtwork } from "./poster";
 
 /** How many titles we aim to show per page of our own. */
-export const PAGE_SIZE = 10;
+export const PAGE_SIZE = 20;
 
 /**
- * Ceiling on upstream requests per render. Filtering means one of our pages
- * can span several OMDB pages; this stops a search where almost nothing has
- * artwork from walking the entire result set.
+ * Ceiling on upstream requests per render, counting only genuine network
+ * calls. Filtering means one of our pages can span several OMDB pages; this
+ * stops a search where almost nothing has artwork from walking the entire
+ * result set. Browsing forward rarely approaches it because earlier pages are
+ * cached — it is really a guard for a cold load, such as a deep link.
  */
-const MAX_REQUESTS = 6;
+const MAX_REQUESTS = 10;
 
 export type PageResult =
   | {
@@ -28,11 +31,46 @@ export type PageResult =
   | { status: "error"; message: string };
 
 /**
- * Cache of upstream pages, so refilling a page after a dead poster does not
- * refetch. Keyed by OMDB page; cleared when the query changes.
+ * Cache of upstream pages, keyed by OMDB page and scoped to one query.
+ *
+ * Filling our page N walks upstream pages from the beginning, so without a
+ * cache that survives navigation the cost grows with depth — and Prev/Next are
+ * ordinary links, so each navigation is a full page load that would discard an
+ * in-memory cache. Persisting to sessionStorage makes every revisited page a
+ * hit, reducing the total calls for a session to the number of distinct
+ * upstream pages actually needed.
  */
-let cacheKey = "";
-const cache = new Map<number, Awaited<ReturnType<typeof searchMovies>>>();
+const PAGES_KEY = "movies:pages";
+
+interface PageCache {
+  query: string;
+  pages: Record<number, SearchResult>;
+}
+
+// Used when sessionStorage is unavailable (private browsing) or rejects a
+// write; behaviour then degrades to the old per-page-load caching.
+let memoryCache: PageCache = { query: "", pages: {} };
+
+function readCache(query: string): PageCache {
+  if (memoryCache.query === query) return memoryCache;
+  try {
+    const raw = sessionStorage.getItem(PAGES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as PageCache) : null;
+    if (parsed && parsed.query === query) return parsed;
+  } catch {
+    // Fall through to a fresh cache for this query.
+  }
+  return { query, pages: {} };
+}
+
+function writeCache(cache: PageCache) {
+  memoryCache = cache;
+  try {
+    sessionStorage.setItem(PAGES_KEY, JSON.stringify(cache));
+  } catch {
+    // Storage disabled or over quota — memoryCache still serves this load.
+  }
+}
 
 /**
  * Poster URLs that OMDB advertises but that no longer resolve. This can only
@@ -82,10 +120,7 @@ export async function fetchPostered(
   config: OmdbConfig,
   page: number,
 ): Promise<PageResult> {
-  if (cacheKey !== query) {
-    cacheKey = query;
-    cache.clear();
-  }
+  const cache = readCache(query);
 
   const needed = page * PAGE_SIZE;
   const dead = deadPosters();
@@ -97,12 +132,15 @@ export async function fetchPostered(
 
   // One extra beyond `needed` so we can tell whether a further page exists.
   while (keepers.length <= needed && requests < MAX_REQUESTS && !exhausted) {
-    let result = cache.get(upstreamPage);
+    let result = cache.pages[upstreamPage];
     if (!result) {
       result = await searchMovies(query, config, upstreamPage);
       requests += 1;
       // Only cache successes; a transient failure should be retried later.
-      if (result.status !== "error") cache.set(upstreamPage, result);
+      if (result.status !== "error") {
+        cache.pages[upstreamPage] = result;
+        writeCache(cache);
+      }
     }
 
     if (result.status === "error") return result;

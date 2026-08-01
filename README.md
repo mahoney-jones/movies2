@@ -11,12 +11,20 @@ titles it knows have none, and also returns plenty of poster URLs that no
 longer resolve; both are hidden, the latter once the image fails to load.
 
 Because OMDB paginates before that filtering happens, `src/lib/paging.ts`
-draws from as many upstream pages as it takes to fill a page of ten. Dead
-poster URLs are remembered in `sessionStorage` for the session, so a refill
-stays consistent and pages do not repeat titles across their boundaries. Two
-consequences: a page view can cost more than one upstream request (capped by
-`MAX_REQUESTS`), and a total page count is not knowable in advance, so
-pagination shows "Page N" with Next driven by whether more results remain.
+draws from as many upstream pages as it takes to fill a page of twenty. Two
+things are kept in `sessionStorage` to make that cheap and consistent:
+
+- **Upstream responses**, so a page never refetches one already seen. Filling
+  page N walks upstream pages from the start, and navigation is a full page
+  load, so without this the request count would grow with browsing depth.
+  With it, a session costs only the distinct upstream pages it genuinely needs.
+- **Dead poster URLs**, so a refill stays consistent and pages do not repeat
+  titles across their boundaries.
+
+Both degrade to in-memory when storage is unavailable — searching still works,
+just with the redundant fetching. A total page count is not knowable in
+advance, so pagination shows "Page N" with Next driven by whether more results
+remain, and `MAX_REQUESTS` bounds a single cold render.
 
 To show every title instead, drop the `hasArtwork` filter in `paging.ts` and
 omit the `onPosterUnavailable` callback in `src/pages/results.astro` — cards
