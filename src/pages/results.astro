@@ -21,16 +21,24 @@ export const prerender = true;
     class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
   >
   </div>
+
+  <nav
+    id="pagination"
+    aria-label="Search results pages"
+    class="mt-10 flex items-center justify-center gap-4"
+  >
+  </nav>
 </Layout>
 
 <script>
-  import { searchMovies } from "../lib/omdb";
+  import { searchMovies, RESULTS_PER_PAGE } from "../lib/omdb";
   import { createMovieCard } from "../lib/movie-card";
   import { OMDB_API_KEY, OMDB_BASE_URL } from "astro:env/client";
 
   const base = import.meta.env.BASE_URL;
   const statusEl = document.querySelector<HTMLElement>("#status")!;
   const resultsEl = document.querySelector<HTMLElement>("#results")!;
+  const pagerEl = document.querySelector<HTMLElement>("#pagination")!;
   const formInput = document.querySelector<HTMLInputElement>("#search")!;
 
   /** Renders a message block. Text goes through textContent, never innerHTML. */
@@ -59,22 +67,53 @@ export const prerender = true;
     statusEl.replaceChildren(box);
   }
 
-  function showCount(shown: number, total: number, query: string) {
+  function showCount(shown: number, total: number, query: string, page: number) {
     const heading = document.createElement("h1");
     heading.className = "mb-1 text-2xl font-bold tracking-tight";
     heading.textContent = `Results for “${query}”`;
 
+    const first = (page - 1) * RESULTS_PER_PAGE + 1;
+    const last = first + shown - 1;
     const count = document.createElement("p");
     count.className = "mb-6 text-sm text-slate-500 dark:text-slate-400";
-    count.textContent = `Showing ${shown} of ${total.toLocaleString()} ${
-      total === 1 ? "match" : "matches"
-    }`;
+    count.textContent =
+      total === 1
+        ? "Showing the only match"
+        : `Showing ${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()} matches`;
 
     statusEl.replaceChildren(heading, count);
   }
 
+  /** Prev/Next links that navigate by rewriting the page query parameter. */
+  function renderPagination(current: number, totalPages: number) {
+    pagerEl.replaceChildren();
+    if (totalPages <= 1) return;
+
+    const link = (target: number, label: string, rel: "prev" | "next") => {
+      const url = new URL(window.location.href);
+      url.searchParams.set("page", String(target));
+      const a = document.createElement("a");
+      a.href = url.pathname + url.search;
+      a.rel = rel;
+      a.textContent = label;
+      a.className =
+        "rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800";
+      return a;
+    };
+
+    if (current > 1) pagerEl.append(link(current - 1, "← Previous", "prev"));
+
+    const status = document.createElement("span");
+    status.className = "text-sm text-slate-500 dark:text-slate-400";
+    status.textContent = `Page ${current.toLocaleString()} of ${totalPages.toLocaleString()}`;
+    pagerEl.append(status);
+
+    if (current < totalPages) pagerEl.append(link(current + 1, "Next →", "next"));
+  }
+
   async function run() {
-    const query = new URL(window.location.href).searchParams.get("search")?.trim();
+    const url = new URL(window.location.href);
+    const query = url.searchParams.get("search")?.trim();
 
     // Nothing to search for — send them back to the form.
     if (!query) {
@@ -82,13 +121,17 @@ export const prerender = true;
       return;
     }
 
+    let page = Number.parseInt(url.searchParams.get("page") ?? "1", 10);
+    if (!Number.isFinite(page) || page < 1) page = 1;
+
     document.title = `${query} — Movies`;
     formInput.value = query;
 
-    const result = await searchMovies(query, {
-      baseUrl: OMDB_BASE_URL,
-      apiKey: OMDB_API_KEY,
-    });
+    const result = await searchMovies(
+      query,
+      { baseUrl: OMDB_BASE_URL, apiKey: OMDB_API_KEY },
+      page,
+    );
 
     if (result.status === "error") {
       showMessage("Something went wrong", result.message, "error");
@@ -104,8 +147,9 @@ export const prerender = true;
       return;
     }
 
-    showCount(result.movies.length, result.total, query);
+    showCount(result.movies.length, result.total, query, page);
     resultsEl.replaceChildren(...result.movies.map(createMovieCard));
+    renderPagination(page, Math.ceil(result.total / RESULTS_PER_PAGE));
   }
 
   run();

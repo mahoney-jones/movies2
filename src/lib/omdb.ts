@@ -32,6 +32,9 @@ export interface OmdbConfig {
 
 const REQUEST_TIMEOUT_MS = 8000;
 
+/** OMDB always returns at most 10 results per page. */
+export const RESULTS_PER_PAGE = 10;
+
 /**
  * Runs in both the browser and Node — configuration is passed in rather than
  * read from `astro:env`, so this module stays free of environment assumptions.
@@ -40,8 +43,13 @@ const REQUEST_TIMEOUT_MS = 8000;
 export async function searchMovies(
   query: string,
   config: OmdbConfig,
+  page = 1,
 ): Promise<SearchResult> {
-  const params = new URLSearchParams({ s: query, apikey: config.apiKey });
+  const params = new URLSearchParams({
+    s: query,
+    apikey: config.apiKey,
+    page: String(page),
+  });
   const url = `${config.baseUrl}/?${params}`;
 
   let response: Response;
