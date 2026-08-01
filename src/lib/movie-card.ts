@@ -6,6 +6,25 @@ import {
   posterUrl,
 } from "./poster";
 
+/** The "No poster available" filler, shared by the N/A and dead-link cases. */
+function buildPlaceholder(): HTMLElement {
+  const placeholder = document.createElement("div");
+  placeholder.className =
+    "flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center text-slate-400 dark:text-slate-500";
+
+  const icon = document.createElement("span");
+  icon.className = "text-3xl";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = "🎞️";
+
+  const label = document.createElement("span");
+  label.className = "text-xs font-medium";
+  label.textContent = "No poster available";
+
+  placeholder.append(icon, label);
+  return placeholder;
+}
+
 /**
  * Builds a card with DOM APIs rather than an HTML string. Titles come from a
  * third-party API, so keeping them in `textContent` means they can never be
@@ -23,6 +42,24 @@ export function createMovieCard(movie: OmdbMovie): HTMLElement {
   const src = posterUrl(movie.Poster);
   if (src) {
     const img = document.createElement("img");
+
+    // OMDB's database carries plenty of stale poster URLs, and our size
+    // rewrite could in principle produce a variant the CDN refuses. On
+    // failure, retry once with the URL exactly as OMDB supplied it; if that
+    // fails too the link is dead, so degrade to the placeholder instead of
+    // the browser's broken-image icon. Attached before src is set so the
+    // error can't fire first.
+    let triedOriginal = src === movie.Poster;
+    img.addEventListener("error", () => {
+      if (!triedOriginal) {
+        triedOriginal = true;
+        img.removeAttribute("srcset");
+        img.src = movie.Poster;
+        return;
+      }
+      frame.replaceChildren(buildPlaceholder());
+    });
+
     img.src = src;
     const srcset = posterSrcSet(movie.Poster);
     if (srcset) img.srcset = srcset;
@@ -35,21 +72,7 @@ export function createMovieCard(movie: OmdbMovie): HTMLElement {
       "h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]";
     frame.append(img);
   } else {
-    const placeholder = document.createElement("div");
-    placeholder.className =
-      "flex h-full w-full flex-col items-center justify-center gap-2 p-4 text-center text-slate-400 dark:text-slate-500";
-
-    const icon = document.createElement("span");
-    icon.className = "text-3xl";
-    icon.setAttribute("aria-hidden", "true");
-    icon.textContent = "🎞️";
-
-    const label = document.createElement("span");
-    label.className = "text-xs font-medium";
-    label.textContent = "No poster available";
-
-    placeholder.append(icon, label);
-    frame.append(placeholder);
+    frame.append(buildPlaceholder());
   }
 
   const body = document.createElement("div");
