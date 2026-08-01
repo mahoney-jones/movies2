@@ -31,9 +31,8 @@ export const prerender = true;
 </Layout>
 
 <script>
-  import { searchMovies, RESULTS_PER_PAGE } from "../lib/omdb";
   import { createMovieCard } from "../lib/movie-card";
-  import { hasArtwork } from "../lib/poster";
+  import { fetchPostered, markPosterDead } from "../lib/paging";
   import { OMDB_API_KEY, OMDB_BASE_URL } from "astro:env/client";
 
   const base = import.meta.env.BASE_URL;
@@ -69,11 +68,12 @@ export const prerender = true;
   }
 
   /**
-   * Titles without artwork are filtered out, so a page can show fewer than the
-   * ten OMDB returns. That makes a contiguous "1–10 of 83" range a lie, so the
-   * count reports what is actually on screen against what the page contained.
+   * Pages are filled from as many upstream pages as it takes, so positions no
+   * longer line up with OMDB's own numbering — a "1–10 of 83" range would be
+   * meaningless. The count states what is on screen against the unfiltered
+   * total, and says plainly that titles are being hidden.
    */
-  function showCount(shown: number, fetched: number, total: number, query: string) {
+  function showCount(shown: number, total: number, query: string) {
     const heading = document.createElement("h1");
     heading.className = "mb-1 text-2xl font-bold tracking-tight";
     heading.textContent = `Results for “${query}”`;
@@ -81,16 +81,13 @@ export const prerender = true;
     const count = document.createElement("p");
     count.className = "mb-6 text-sm text-slate-500 dark:text-slate-400";
     count.id = "result-count";
-    count.textContent =
-      shown === fetched
-        ? `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} matches`
-        : `Showing ${shown.toLocaleString()} of ${fetched.toLocaleString()} on this page · ${total.toLocaleString()} matches total`;
+    count.textContent = `Showing ${shown.toLocaleString()} of ${total.toLocaleString()} matches · titles without a poster are hidden`;
 
     statusEl.replaceChildren(heading, count);
   }
 
-  /** Every title on this page lacked artwork, so the grid came out empty. */
-  function showNothingOnPage(query: string, fetched: number) {
+  /** Nothing left with artwork — either past the end, or none survived. */
+  function showNothingOnPage(query: string) {
     const heading = document.createElement("h1");
     heading.className = "mb-1 text-2xl font-bold tracking-tight";
     heading.textContent = `Results for “${query}”`;
@@ -100,16 +97,21 @@ export const prerender = true;
       "rounded-xl border border-slate-200 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900";
     const line = document.createElement("p");
     line.className = "text-sm text-slate-500 dark:text-slate-400";
-    line.textContent = `None of the ${fetched.toLocaleString()} results on this page have a poster. Try the next page.`;
+    line.textContent = "No more titles with posters for this search.";
     box.append(line);
 
     statusEl.replaceChildren(heading, box);
   }
 
-  /** Prev/Next links that navigate by rewriting the page query parameter. */
-  function renderPagination(current: number, totalPages: number) {
+  /**
+   * Prev/Next links that navigate by rewriting the page query parameter.
+   * A total page count is not knowable — how many pages the filtered results
+   * fill depends on how many titles get hidden further in — so Next is driven
+   * by whether more survivors exist.
+   */
+  function renderPagination(current: number, hasNext: boolean) {
     pagerEl.replaceChildren();
-    if (totalPages <= 1) return;
+    if (current === 1 && !hasNext) return;
 
     const link = (target: number, label: string, rel: "prev" | "next") => {
       const url = new URL(window.location.href);
@@ -127,10 +129,10 @@ export const prerender = true;
 
     const status = document.createElement("span");
     status.className = "text-sm text-slate-500 dark:text-slate-400";
-    status.textContent = `Page ${current.toLocaleString()} of ${totalPages.toLocaleString()}`;
+    status.textContent = `Page ${current.toLocaleString()}`;
     pagerEl.append(status);
 
-    if (current < totalPages) pagerEl.append(link(current + 1, "Next →", "next"));
+    if (hasNext) pagerEl.append(link(current + 1, "Next →", "next"));
   }
 
   async function run() {
@@ -149,7 +151,14 @@ export const prerender = true;
     document.title = `${query} — Movies`;
     formInput.value = query;
 
-    const result = await searchMovies(
+    await render(query, page);
+  }
+
+  async function render(query: string, page: number) {
+    // Pulls from as many upstream pages as it takes to fill a full page of
+    // titles that have artwork, rather than filtering a single upstream page
+    // and leaving a short grid behind.
+    const result = await fetchPostered(
       query,
       { baseUrl: OMDB_BASE_URL, apiKey: OMDB_API_KEY },
       page,
@@ -169,28 +178,28 @@ export const prerender = true;
       return;
     }
 
-    const fetched = result.movies.length;
-    // OMDB reports "N/A" when it knows it has no artwork — drop those upfront.
-    const withArtwork = result.movies.filter((m) => hasArtwork(m.Poster));
-    let shown = withArtwork.length;
+    if (result.movies.length === 0) {
+      showNothingOnPage(query);
+      renderPagination(page, false);
+      return;
+    }
 
-    // The rest advertise a poster URL, but some are dead links. Those only
-    // reveal themselves when the image fails to load, so the card removes
-    // itself then and the count is corrected in place.
-    const onPosterUnavailable = (card: HTMLElement) => {
-      card.remove();
-      shown -= 1;
-      if (shown === 0) showNothingOnPage(query, fetched);
-      else showCount(shown, fetched, result.total, query);
+    // Every title here advertises a poster, but some URLs are dead — only
+    // discoverable by trying to load them. Recording the failure and
+    // re-rendering pulls a replacement in from the already-cached upstream
+    // pages, so the page stays full instead of dropping to nine. Each failure
+    // adds a URL to the dead set, so this converges.
+    const onPosterUnavailable = (movie: { Poster: string }) => {
+      if (markPosterDead(movie.Poster)) void render(query, page);
     };
 
-    if (shown === 0) showNothingOnPage(query, fetched);
-    else showCount(shown, fetched, result.total, query);
-
+    showCount(result.movies.length, result.total, query);
     resultsEl.replaceChildren(
-      ...withArtwork.map((movie) => createMovieCard(movie, onPosterUnavailable)),
+      ...result.movies.map((movie) =>
+        createMovieCard(movie, () => onPosterUnavailable(movie)),
+      ),
     );
-    renderPagination(page, Math.ceil(result.total / RESULTS_PER_PAGE));
+    renderPagination(page, result.hasNext);
   }
 
   run();
