@@ -1,0 +1,18 @@
+---
+import Layout from "../layouts/Layout.astro";
+import SearchForm from "../components/SearchForm.astro";
+---
+
+<Layout title="Movies">
+  <div class="mx-auto max-w-xl py-8 text-center sm:py-16">
+    <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">
+      Search for a movie
+    </h1>
+    <p class="mt-3 text-slate-600 dark:text-slate-400">
+      Find posters, titles and release years from the OMDB database.
+    </p>
+    <div class="mt-8 text-left">
+      <SearchForm autofocus />
+    </div>
+  </div>
+</Layout>
