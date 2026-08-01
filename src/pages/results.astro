@@ -1,72 +1,112 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import MovieCard from "../components/MovieCard.astro";
 import SearchForm from "../components/SearchForm.astro";
-import { searchMovies } from "../lib/omdb";
 
-// Results depend on the query string, so this page is rendered per request.
-export const prerender = false;
-
-const query = Astro.url.searchParams.get("search")?.trim() ?? "";
-
-// Nothing to search for — send them back to the form rather than calling OMDB.
-if (!query) {
-  return Astro.redirect("/");
-}
-
-const result = await searchMovies(query);
-
-// Surface upstream failures as a gateway error rather than a misleading 200.
-if (result.status === "error") {
-  Astro.response.status = 502;
-}
+// Prerendered: the page is a static shell and the search runs in the browser,
+// so the whole site can be hosted on static hosting such as GitHub Pages.
+export const prerender = true;
 ---
 
-<Layout title={`${query} — Movies`}>
+<Layout title="Results — Movies">
   <div class="mb-8">
-    <SearchForm query={query} />
+    <SearchForm />
   </div>
 
-  {
-    result.status === "ok" && (
-      <>
-        <h1 class="mb-1 text-2xl font-bold tracking-tight">
-          Results for “{query}”
-        </h1>
-        <p class="mb-6 text-sm text-slate-500 dark:text-slate-400">
-          Showing {result.movies.length} of {result.total.toLocaleString()}{" "}
-          {result.total === 1 ? "match" : "matches"}
-        </p>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-          {result.movies.map((movie) => (
-            <MovieCard movie={movie} />
-          ))}
-        </div>
-      </>
-    )
-  }
+  <div id="status" role="status" aria-live="polite">
+    <p class="text-sm text-slate-500 dark:text-slate-400">Searching…</p>
+  </div>
 
-  {
-    result.status === "empty" && (
-      <div class="rounded-xl border border-slate-200 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900">
-        <p class="text-lg font-medium">No results for “{query}”</p>
-        <p class="mt-2 text-sm text-slate-500 dark:text-slate-400">
-          {result.message} Try a different search term.
-        </p>
-      </div>
-    )
-  }
-
-  {
-    result.status === "error" && (
-      <div class="rounded-xl border border-red-200 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/30">
-        <p class="text-lg font-medium text-red-800 dark:text-red-200">
-          Something went wrong
-        </p>
-        <p class="mt-2 text-sm text-red-700 dark:text-red-300">
-          {result.message}
-        </p>
-      </div>
-    )
-  }
+  <div
+    id="results"
+    class="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+  >
+  </div>
 </Layout>
+
+<script>
+  import { searchMovies } from "../lib/omdb";
+  import { createMovieCard } from "../lib/movie-card";
+  import { OMDB_API_KEY, OMDB_BASE_URL } from "astro:env/client";
+
+  const base = import.meta.env.BASE_URL;
+  const statusEl = document.querySelector<HTMLElement>("#status")!;
+  const resultsEl = document.querySelector<HTMLElement>("#results")!;
+  const formInput = document.querySelector<HTMLInputElement>("#search")!;
+
+  /** Renders a message block. Text goes through textContent, never innerHTML. */
+  function showMessage(text: string, detail: string, tone: "info" | "error") {
+    const box = document.createElement("div");
+    box.className =
+      tone === "error"
+        ? "rounded-xl border border-red-200 bg-red-50 p-8 text-center dark:border-red-900/50 dark:bg-red-950/30"
+        : "rounded-xl border border-slate-200 bg-white p-8 text-center dark:border-slate-800 dark:bg-slate-900";
+
+    const heading = document.createElement("p");
+    heading.className =
+      tone === "error"
+        ? "text-lg font-medium text-red-800 dark:text-red-200"
+        : "text-lg font-medium";
+    heading.textContent = text;
+
+    const body = document.createElement("p");
+    body.className =
+      tone === "error"
+        ? "mt-2 text-sm text-red-700 dark:text-red-300"
+        : "mt-2 text-sm text-slate-500 dark:text-slate-400";
+    body.textContent = detail;
+
+    box.append(heading, body);
+    statusEl.replaceChildren(box);
+  }
+
+  function showCount(shown: number, total: number, query: string) {
+    const heading = document.createElement("h1");
+    heading.className = "mb-1 text-2xl font-bold tracking-tight";
+    heading.textContent = `Results for “${query}”`;
+
+    const count = document.createElement("p");
+    count.className = "mb-6 text-sm text-slate-500 dark:text-slate-400";
+    count.textContent = `Showing ${shown} of ${total.toLocaleString()} ${
+      total === 1 ? "match" : "matches"
+    }`;
+
+    statusEl.replaceChildren(heading, count);
+  }
+
+  async function run() {
+    const query = new URL(window.location.href).searchParams.get("search")?.trim();
+
+    // Nothing to search for — send them back to the form.
+    if (!query) {
+      window.location.replace(base);
+      return;
+    }
+
+    document.title = `${query} — Movies`;
+    formInput.value = query;
+
+    const result = await searchMovies(query, {
+      baseUrl: OMDB_BASE_URL,
+      apiKey: OMDB_API_KEY,
+    });
+
+    if (result.status === "error") {
+      showMessage("Something went wrong", result.message, "error");
+      return;
+    }
+
+    if (result.status === "empty") {
+      showMessage(
+        `No results for “${query}”`,
+        `${result.message} Try a different search term.`,
+        "info",
+      );
+      return;
+    }
+
+    showCount(result.movies.length, result.total, query);
+    resultsEl.replaceChildren(...result.movies.map(createMovieCard));
+  }
+
+  run();
+</script>

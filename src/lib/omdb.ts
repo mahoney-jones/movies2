@@ -1,5 +1,3 @@
-import { OMDB_API_KEY, OMDB_BASE_URL } from "astro:env/server";
-
 /** A single entry from OMDB's `?s=` search response. */
 export interface OmdbMovie {
   Title: string;
@@ -27,11 +25,24 @@ export type SearchResult =
   | { status: "empty"; message: string }
   | { status: "error"; message: string };
 
+export interface OmdbConfig {
+  baseUrl: string;
+  apiKey: string;
+}
+
 const REQUEST_TIMEOUT_MS = 8000;
 
-export async function searchMovies(query: string): Promise<SearchResult> {
-  const params = new URLSearchParams({ s: query, apikey: OMDB_API_KEY });
-  const url = `${OMDB_BASE_URL}/?${params}`;
+/**
+ * Runs in both the browser and Node — configuration is passed in rather than
+ * read from `astro:env`, so this module stays free of environment assumptions.
+ * It never throws; every failure is returned as an `error` result.
+ */
+export async function searchMovies(
+  query: string,
+  config: OmdbConfig,
+): Promise<SearchResult> {
+  const params = new URLSearchParams({ s: query, apikey: config.apiKey });
+  const url = `${config.baseUrl}/?${params}`;
 
   let response: Response;
   try {

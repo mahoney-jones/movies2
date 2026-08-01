@@ -1,18 +1,23 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/pages/` holds file-based routes. `index.astro` is the search form and is
-  prerendered; `results.astro` sets `export const prerender = false` because it
-  depends on the query string. `404.astro` and `500.astro` are the error pages.
-- `src/lib/` holds framework-free TypeScript. `omdb.ts` owns all OMDB access;
-  `poster.ts` owns poster URL handling. Keep these free of Astro imports (aside
-  from `astro:env`) so they stay easy to test and reuse.
+- `src/pages/` holds file-based routes. The site is fully static: every page is
+  prerendered and the search runs in the browser, so it can be hosted on GitHub
+  Pages. `index.astro` is the search form, `results.astro` is a static shell plus
+  a client script, and `404.astro` is the not-found page.
+- `src/lib/` holds framework-free TypeScript that runs in the browser. `omdb.ts`
+  owns all OMDB access and takes its configuration as an argument rather than
+  reading the environment; `poster.ts` owns poster URL handling; `movie-card.ts`
+  builds a result card. Keep these free of Astro imports so they stay portable
+  and easy to test.
 - `src/components/` holds `.astro` components; `src/layouts/Layout.astro` is the
   page shell that owns `<head>`, header and footer.
 - `src/styles/global.css` is the single stylesheet — it only imports Tailwind.
 - `public/` is for static assets served verbatim, if any are added.
-- Configuration lives in `astro.config.mjs`. Secrets belong in environment
-  variables declared under `env.schema`; never hardcode a key in source.
+- Configuration lives in `astro.config.mjs` under `env.schema`; never hardcode a
+  key in source. Note that `context: "client"` values are compiled into the
+  browser bundle and are public, while `access: "secret"` values are read at
+  runtime — `access: "public"` server values are inlined at build time.
 
 ## Build, Test, and Development Commands
 - `npm install` installs dependencies.
@@ -20,7 +25,8 @@
   starts the dev server detached in the background — use `astro dev status`,
   `astro dev logs` and `astro dev stop` to manage it, or set
   `ASTRO_DEV_BACKGROUND=0` to run it in the foreground.
-- `npm run build` produces `dist/`; `npm start` serves it on `PORT` (default 3000).
+- `npm run build` produces a static `dist/`; `npm start` previews it.
+- `.github/workflows/deploy.yml` publishes `dist/` to GitHub Pages on push.
 - `npm run check` runs `astro check` for types and template diagnostics. Run it
   before committing — it catches more than `tsc` alone.
 - `npm test` currently fails by design; replace it when adding a test runner.
@@ -36,6 +42,11 @@
 - Model fallible operations as returned unions rather than thrown exceptions —
   see `SearchResult` in `src/lib/omdb.ts`. Every branch must render something;
   a request that produces no response is the bug this design exists to prevent.
+- Build DOM from API data with `document.createElement` and `textContent`, never
+  `innerHTML`. Movie titles are third-party input and must never be parsed as
+  markup — `src/lib/movie-card.ts` is the reference.
+- Astro 7 compresses HTML with JSX whitespace rules, so a space between two
+  inline elements is dropped unless written explicitly as `{" "}`.
 
 ## Testing Guidelines
 - Add tests with `vitest` under `tests/`, mirroring route and module names
@@ -44,7 +55,10 @@
   targets — cover the `ok`, `empty` and `error` branches first.
 - Stub OMDB rather than calling it. Point `OMDB_BASE_URL` at a local server and
   keep representative payloads under `tests/fixtures/`, including a title whose
-  `Poster` is `"N/A"` and one whose URL carries no `_SX` size token.
+  `Poster` is `"N/A"`, one whose URL carries no `_SX` size token, and one whose
+  title contains HTML.
+- A browser-level stub must send `Access-Control-Allow-Origin`, since the search
+  now runs client-side and is subject to CORS.
 
 ## Commit & Pull Request Guidelines
 - Use short, imperative subject lines (`Add search pagination`), with body detail

@@ -1,5 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
+
+const home = import.meta.env.BASE_URL;
 ---
 
 <Layout title="Page not found — Movies">
@@ -9,7 +11,7 @@ import Layout from "../layouts/Layout.astro";
       We couldn’t find that page.
     </p>
     <a
-      href="/"
+      href={home}
       class="mt-6 inline-block rounded-lg bg-sky-600 px-5 py-2.5 font-medium text-white shadow-sm transition hover:bg-sky-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500"
     >
       Back to search

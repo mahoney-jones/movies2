@@ -1,24 +1,31 @@
 // @ts-check
 import { defineConfig, envField } from "astro/config";
-import node from "@astrojs/node";
 import tailwindcss from "@tailwindcss/vite";
 
+// Project page for github.com/mahoney-jones/movies2.
+// Override with SITE / BASE_PATH when deploying somewhere else.
+const site = process.env.SITE ?? "https://mahoney-jones.github.io";
+const base = process.env.BASE_PATH ?? "/movies2";
+
 export default defineConfig({
-  adapter: node({ mode: "standalone" }),
+  site,
+  base,
+  // Fully static: every page is prerendered and the search runs in the browser,
+  // so the build can be served by GitHub Pages with no server involved.
+  output: "static",
+  trailingSlash: "always",
   env: {
     schema: {
-      // Defaults to the public demo key so a fresh clone runs with no setup.
+      // Client context: these are compiled into the browser bundle and are
+      // therefore public by definition. `thewdb` is OMDB's own demo key.
       OMDB_API_KEY: envField.string({
-        context: "server",
-        access: "secret",
+        context: "client",
+        access: "public",
         default: "thewdb",
       }),
-      // `secret` rather than `public` because astro:env inlines public values at
-      // build time. This one has to be read at runtime so the same build can be
-      // pointed at a different endpoint (a stub, a staging proxy) without rebuilding.
       OMDB_BASE_URL: envField.string({
-        context: "server",
-        access: "secret",
+        context: "client",
+        access: "public",
         default: "https://www.omdbapi.com",
       }),
     },
